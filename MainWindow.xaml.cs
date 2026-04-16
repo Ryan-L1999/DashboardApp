@@ -18,6 +18,8 @@ namespace DashboardApp
             LoadDashboard();
         }
 
+
+
         private async void LoadDashboard()
         {
             string studentDataJson = "[]", teacherDataJson = "[]", staffDataJson = "[]";
