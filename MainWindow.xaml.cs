@@ -3,12 +3,13 @@ using Microsoft.Data.SqlClient;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using System.Text.Json;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace DashboardApp
 {
     public partial class MainWindow : Window
     {
-        // Added @ for verbatim string to handle backslashes in server name
         string connectionString = @"Server=RYAN_LUAYON1999\SQLEXPRESS;Database=DashboardDB;Trusted_Connection=True;TrustServerCertificate=True;";
 
         public MainWindow()
@@ -19,9 +20,7 @@ namespace DashboardApp
 
         private async void LoadDashboard()
         {
-            // We will store our data distributions here
             string studentDataJson = "[]", teacherDataJson = "[]", staffDataJson = "[]";
-            int studentCount = 0, teacherCount = 0, staffCount = 0;
 
             try
             {
@@ -29,33 +28,29 @@ namespace DashboardApp
                 {
                     await conn.OpenAsync();
 
-                    // Fetch Students (selecting all 3 required columns)
-                    var studentList = await GetDistribution(conn, "SELECT Age, Gender, Course FROM Students");
+                    var studentList = await GetDistribution(conn, "SELECT ID, Name, Age, Gender, Course FROM Students");
                     studentDataJson = JsonSerializer.Serialize(studentList);
-                    studentCount = studentList.Count;
 
-                    // Fetch Teachers
-                    var teacherList = await GetDistribution(conn, "SELECT Age, Gender, Department FROM Teachers");
+                    var teacherList = await GetDistribution(conn, "SELECT ID, Name, Age, Gender, Department FROM Teachers");
                     teacherDataJson = JsonSerializer.Serialize(teacherList);
-                    teacherCount = teacherList.Count;
 
-                    // Fetch Staff
-                    var staffList = await GetDistribution(conn, "SELECT Age, Gender, Position FROM Staff");
+                    var staffList = await GetDistribution(conn, "SELECT ID, Name, Age, Gender, Position FROM Staff");
                     staffDataJson = JsonSerializer.Serialize(staffList);
-                    staffCount = staffList.Count;
+
+                    // Pass the actual counts directly to the HTML generator
+                    string html = GetModernHtml(studentDataJson, teacherDataJson, staffDataJson,
+                                               studentList.Count, teacherList.Count, staffList.Count);
+
+                    await browser.EnsureCoreWebView2Async(null);
+                    browser.NavigateToString(html);
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Database Error: " + ex.Message);
             }
-
-            string html = GetModernHtml(studentDataJson, teacherDataJson, staffDataJson, studentCount, teacherCount, staffCount);
-            await browser.EnsureCoreWebView2Async(null);
-            browser.NavigateToString(html);
         }
 
-        // Helper method to turn SQL rows into a list of objects
         private async Task<List<dynamic>> GetDistribution(SqlConnection conn, string query)
         {
             var list = new List<dynamic>();
@@ -79,83 +74,107 @@ namespace DashboardApp
 <html>
 <head>
     <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+    <link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap' rel='stylesheet'>
     <style>
-        :root {{ --bg: #0b0f19; --card: #161b22; --accent: #58a6ff; --text: #c9d1d9; }}
-        body {{ background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; padding: 30px; }}
-        .container {{ display: flex; flex-direction: column; gap: 40px; max-width: 1000px; margin: auto; }}
-        .card {{ 
-            background: var(--card); 
-            padding: 30px; 
-            border-radius: 12px; 
-            border: 1px solid #30363d;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        }}
-        .card-info {{ margin-bottom: 20px; }}
-        h2 {{ margin: 0; color: var(--accent); font-size: 1.5rem; }}
-        p {{ color: #8b949e; margin: 5px 0 0 0; }}
-        .chart-box {{ position: relative; height: 350px; width: 100%; }}
+        :root {{ --bg: #0b0f19; --card: #161b22; --accent: #58a6ff; --text: #c9d1d9; --border: #30363d; }}
+        body {{ background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; padding: 30px; margin: 0; }}
+        .container {{ max-width: 1000px; margin: auto; display: flex; flex-direction: column; gap: 30px; }}
+        .card {{ background: var(--card); padding: 25px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }}
+        h2 {{ margin: 0; color: var(--accent); font-size: 1.4rem; }}
+        .subtitle {{ color: #8b949e; margin-bottom: 25px; font-size: 0.9rem; }}
+        .chart-box {{ position: relative; height: 320px; width: 100%; margin-bottom: 40px; }}
+        .tabs {{ display: flex; gap: 10px; margin-bottom: 20px; }}
+        .tab-btn {{ background: #21262d; color: var(--text); border: 1px solid var(--border); padding: 10px 20px; cursor: pointer; border-radius: 6px; font-weight: 600; }}
+        .tab-btn.active {{ background: var(--accent); color: white; border-color: var(--accent); }}
+        .table-wrap {{ overflow-x: auto; max-height: 450px; border-radius: 8px; border: 1px solid var(--border); }}
+        table {{ width: 100%; border-collapse: collapse; text-align: left; background: #0d1117; }}
+        th {{ padding: 14px; background: #161b22; color: var(--accent); position: sticky; top: 0; border-bottom: 2px solid var(--border); }}
+        td {{ padding: 12px; border-bottom: 1px solid var(--border); color: #8b949e; }}
+        tr:hover {{ background: rgba(88, 166, 255, 0.05); }}
     </style>
 </head>
 <body>
     <div class='container'>
         <div class='card'>
-            <div class='card-info'><h2>🎓 Student Analytics</h2><p>Age, Gender, and Course Distribution ({sCount} Total)</p></div>
+            <h2>📊 Analytics Dashboard</h2>
+            <p class='subtitle'>Visual representation of Age, Gender, and Roles</p>
             <div class='chart-box'><canvas id='sChart'></canvas></div>
-        </div>
-
-        <div class='card'>
-            <div class='card-info'><h2>👩‍🏫 Faculty Analytics</h2><p>Age, Gender, and Department Distribution ({tCount} Total)</p></div>
             <div class='chart-box'><canvas id='tChart'></canvas></div>
-        </div>
-
-        <div class='card'>
-            <div class='card-info'><h2>🧑‍💼 Staff Analytics</h2><p>Age, Gender, and Position Distribution ({stCount} Total)</p></div>
             <div class='chart-box'><canvas id='stChart'></canvas></div>
         </div>
+        <div class='card'>
+            <h2>📄 Database Records</h2>
+            <div class='tabs'>
+                <button class='tab-btn active' onclick='switchTable(""students"")'>Students ({sCount})</button>
+                <button class='tab-btn' onclick='switchTable(""teachers"")'>Teachers ({tCount})</button>
+                <button class='tab-btn' onclick='switchTable(""staff"")'>Staff ({stCount})</button>
+            </div>
+            <div class='table-wrap'>
+                <table>
+                    <thead><tr id='tableHead'></tr></thead>
+                    <tbody id='tableBody'></tbody>
+                </table>
+            </div>
+        </div>
     </div>
-
     <script>
-        const sRaw = {sData};
-        const tRaw = {tData};
-        const stRaw = {stData};
+        const allData = {{ students: {sData}, teachers: {tData}, staff: {stData} }};
 
-        function processComplexData(data, mainKey) {{
-            const labels = [...new Set(data.map(item => item[mainKey]))]; // Unique Courses/Depts/Pos
-            
-            // We'll create datasets for Gender specifically to show how they split across the main category
-            const males = labels.map(l => data.filter(i => i[mainKey] === l && i.Gender === 'Male').length);
-            const females = labels.map(l => data.filter(i => i[mainKey] === l && i.Gender === 'Female').length);
-            
+        function renderTable(type) {{
+            const list = allData[type];
+            const head = document.getElementById('tableHead');
+            const body = document.getElementById('tableBody');
+            head.innerHTML = ''; body.innerHTML = '';
+            if (list.length === 0) return;
+            Object.keys(list[0]).forEach(key => {{ head.innerHTML += `<th>${{key}}</th>`; }});
+            list.forEach(item => {{
+                let row = '<tr>';
+                Object.values(item).forEach(val => {{ row += `<td>${{val}}</td>`; }});
+                row += '</tr>';
+                body.innerHTML += row;
+            }});
+        }}
+
+        function switchTable(type) {{
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            renderTable(type);
+        }}
+
+        function processData(data, key) {{
+            const labels = [...new Set(data.map(i => i[key]))];
+            const males = labels.map(l => data.filter(i => i[key] === l && i.Gender === 'Male').length);
+            const females = labels.map(l => data.filter(i => i[key] === l && i.Gender === 'Female').length);
             return {{ labels, males, females }};
         }}
 
-        function renderModernChart(id, title, rawData, mainKey) {{
-            const processed = processComplexData(rawData, mainKey);
-            
+        function initChart(id, rawData, mainKey, title) {{
+            const p = processData(rawData, mainKey);
             new Chart(document.getElementById(id), {{
                 type: 'bar',
                 data: {{
-                    labels: processed.labels,
+                    labels: p.labels,
                     datasets: [
-                        {{ label: 'Male', data: processed.males, backgroundColor: '#38bdf8', borderRadius: 5 }},
-                        {{ label: 'Female', data: processed.females, backgroundColor: '#fb7185', borderRadius: 5 }}
+                        {{ label: 'Male', data: p.males, backgroundColor: '#38bdf8', borderRadius: 4 }},
+                        {{ label: 'Female', data: p.females, backgroundColor: '#fb7185', borderRadius: 4 }}
                     ]
                 }},
                 options: {{
-                    indexAxis: 'y', // Makes it horizontal
+                    indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {{
+                    plugins: {{ 
                         legend: {{ position: 'top', labels: {{ color: '#c9d1d9' }} }},
+                        title: {{ display: true, text: title, color: '#fff', font: {{ size: 16 }} }},
                         tooltip: {{
                             callbacks: {{
                                 afterLabel: function(context) {{
-                                    // Custom logic to show Age in the tooltip
                                     const category = context.label;
                                     const gender = context.dataset.label;
-                                    const items = rawData.filter(i => i[mainKey] === category && i.Gender === gender);
-                                    const ages = items.map(i => i.Age);
-                                    return ages.length > 0 ? 'Ages: ' + ages.join(', ') : '';
+                                    const matches = rawData.filter(i => i[mainKey] === category && i.Gender === gender);
+                                    // Use double curly braces for C# interpolation escape
+                                    const names = matches.map(i => `${{i.ID}}: ${{i.Name}}`).join(', ');
+                                    return names ? 'Members: ' + names : '';
                                 }}
                             }}
                         }}
@@ -168,13 +187,13 @@ namespace DashboardApp
             }});
         }}
 
-        renderModernChart('sChart', 'Students', sRaw, 'Course');
-        renderModernChart('tChart', 'Teachers', tRaw, 'Department');
-        renderModernChart('stChart', 'Staff', stRaw, 'Position');
+        initChart('sChart', allData.students, 'Course', 'Student Course Distribution');
+        initChart('tChart', allData.teachers, 'Department', 'Teacher Department Distribution');
+        initChart('stChart', allData.staff, 'Position', 'Staff Position Distribution');
+        renderTable('students');
     </script>
 </body>
 </html>";
-
         }
     }
 }
